@@ -1,0 +1,15 @@
+.env
+__pycache__/
+*.pyc
+chroma_db/
+.streamlit/secrets.toml
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# OS / tooling
+.DS_Store
+.pytest_cache/
+pytest-cache-files-*/

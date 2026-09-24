@@ -1,0 +1,35 @@
+graph TD
+    A[User Message] --> B[Input Guardrails]
+
+    B -->|PII detected| B1[Redact PII]
+    B1 --> B
+    B -->|Injection detected| BLOCK[Block Response → END]
+    B -->|Clean| C[Router]
+
+    C -->|faq / greeting| D[Knowledge Agent]
+    C -->|complex_query / complaint| E[Analyst Agent]
+    C -->|escalation / high urgency| F[Escalation]
+    C -->|out_of_scope| G[Output Guardrails]
+
+    D -->|confidence >= 0.4| G
+    D -->|confidence < 0.4| F
+
+    E -->|confidence >= 0.4| G
+    E -->|confidence < 0.4| F
+
+    F --> G
+
+    G --> H[Final Response to User]
+
+    D -.->|RAG| DB[(ChromaDB\n12 docs)]
+    E -.->|Tools| T1[check_order_status]
+    E -.->|Tools| T2[calculate_billing]
+    E -.->|Tools| T3[check_service_status]
+
+    style B fill:#ff6b6b,color:#fff
+    style G fill:#ff6b6b,color:#fff
+    style C fill:#4ecdc4,color:#fff
+    style D fill:#45b7d1,color:#fff
+    style E fill:#45b7d1,color:#fff
+    style F fill:#f9ca24,color:#333
+    style BLOCK fill:#c0392b,color:#fff

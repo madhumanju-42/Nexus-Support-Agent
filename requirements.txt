@@ -1,0 +1,7 @@
+langgraph
+langchain
+langchain-openai
+openai
+chromadb>=0.5.20,<1.0.0
+streamlit
+python-dotenv
