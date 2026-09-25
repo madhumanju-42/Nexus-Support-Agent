@@ -1,5 +1,7 @@
 # How to Run & Test — Step by Step Guide
 
+This guide covers the Streamlit app. For the React web UI and FastAPI backend, see the Setup section of the README.
+
 This guide assumes you have no prior Python experience. Follow each step exactly.
 
 ---
@@ -72,11 +74,11 @@ OPENAI_API_KEY=sk-your-actual-key-here
 ## STEP 5: Run the Application
 
 ```
-streamlit run app.py
+python -m streamlit run app.py
 ```
 
 What happens:
-1. First run: the system builds the knowledge base (takes about 10-20 seconds). It reads the 12 markdown docs, splits them into chunks, generates embeddings via OpenAI, and stores them in ChromaDB.
+1. First run: the system builds the knowledge base (this takes a little while). It reads the 12 markdown docs, splits them into chunks, generates embeddings via OpenAI, and stores them in ChromaDB.
 2. The LangGraph agent graph compiles.
 3. A browser window opens at `http://localhost:8501` with the chat interface.
 
@@ -135,20 +137,23 @@ Type: `Is there an outage right now?`
 To run the automated tests (no API key needed for these):
 
 ```
+pip install -r requirements-dev.txt
 python -m pytest tests/ -v
 ```
 
-**What it tests (44 tests total):**
+**What it tests (66 tests total):**
 
 - `test_guardrails.py` (19 tests): PII detection for all 4 types, injection detection for all patterns, scope violation detection, output PII leak detection
 - `test_router.py` (13 tests): Routing logic — verifies each intent goes to the correct agent, high urgency triggers escalation, low confidence triggers escalation
 - `test_tools.py` (12 tests): Mock tools return correct data, handle edge cases (unknown orders, unknown plans, case insensitivity)
+- `test_escalation.py` (2 tests): The escalation summary is built from PII-redacted input (OpenAI client mocked)
+- `test_api.py` (20 tests): The FastAPI endpoints, run against the real graph with fake agent nodes
 
-**All 44 should show PASSED.** If any fail, something went wrong with the setup.
+**All 66 should show PASSED.** If any fail, something went wrong with the setup.
 
 ---
 
-## STEP 8: Deploy (for the live URL requirement)
+## STEP 8: Deploy
 
 ### Option A: Streamlit Community Cloud (free, easiest)
 
@@ -169,7 +174,7 @@ python -m pytest tests/ -v
    ```
 5. Click "Deploy" — you'll get a public URL like `https://your-app.streamlit.app`
 
-### Option B: Railway ($5/month, more reliable)
+### Option B: Railway
 
 1. Push to GitHub (same as above)
 2. Go to https://railway.com → "New Project" → "Deploy from GitHub Repo"
@@ -189,10 +194,10 @@ Run `pip install -r requirements.txt` again.
 Your `.env` file is missing or the key is wrong. Make sure the file exists and contains `OPENAI_API_KEY=sk-...`
 
 **"ChromaDB error" on first run**
-Delete the `chroma_db/` folder and restart: `rm -rf chroma_db/ && streamlit run app.py`
+Delete the `chroma_db/` folder and restart: `rm -rf chroma_db/ && python -m streamlit run app.py`
 
 **App runs but responses are slow**
-Normal — each query makes 2-4 API calls to OpenAI. First call (injection classifier) + router + specialist + output guardrails. Total should be 3-8 seconds.
+Normal — each query makes several OpenAI calls in sequence (injection classifier, router, and the specialist, plus an escalation summary or compliance rewrite when needed).
 
 **Tests fail with "No module named 'langgraph'"**
-Install dependencies first: `pip install -r requirements.txt`
+Install dependencies first: `pip install -r requirements-dev.txt`

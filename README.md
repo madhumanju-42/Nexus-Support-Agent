@@ -4,80 +4,131 @@ A customer support assistant for NexusCloud, a fictional cloud provider. Six age
 
 The design keeps the LLM on narrow jobs (classify, answer, summarize) and keeps control flow in plain Python: routing is done by small deterministic functions over a shared state, so every path can be unit-tested without an API key. Guardrails run on both input and output, and low-confidence answers escalate instead of guessing. See [docs/design-and-tradeoffs.md](docs/design-and-tradeoffs.md) for the reasoning and known limitations.
 
+<!-- TODO screenshot: save a capture of the web UI (chat + agent activity panel) as
+     docs/images/web-ui.png, then uncomment the line below.
+![NexusCloud Support web UI](docs/images/web-ui.png)
+-->
+_Screenshot coming soon._
+
+## Web UI
+
+The primary interface is a React + TypeScript app built with Fluent UI React v9 (`web/`), backed by a FastAPI server (`api/`). Design notes: [docs/design-web-ui.md](docs/design-web-ui.md).
+
+- **Live progress.** Each LangGraph node reports as it finishes ("Checking input → Routing → Searching knowledge base → Checking response"), streamed over Server-Sent Events.
+- **Clear outcomes.** Blocked-input notice for prompt injection, a notice when PII was redacted, and a human-handoff card showing the summary sent to the support team.
+- **Sources.** Documents retrieved from the knowledge base appear as chips under answers from the knowledge agent.
+- **Agent activity panel.** Collapsible side panel with intent, urgency, agent, self-reported confidence, tools called with arguments, and guardrail flags.
+- **Feedback.** Thumbs up/down per reply, appended to a local, gitignored JSONL file (message id, rating, intent, agent, and timestamp; never the message text).
+- **Accessibility.** Keyboard operable, labelled controls, Fluent focus indicators, an `aria-live` conversation log and progress status, and light/dark themes that follow the OS setting.
+
+The original Streamlit app (`app.py`) still works as a fallback.
+
 ## Architecture
 
 ```
-User Message
+ Browser (React + Fluent UI)
+     │  POST /api/chat/stream  (Server-Sent Events: one event per node, then the result)
+     ▼
+ FastAPI (api/)  ──  reuses build_graph() and graph.stream()
      │
      ▼
 ┌─────────────────────┐
-│  INPUT GUARDRAILS    │ ── PII redaction (regex) + injection detection (regex + LLM)
+│  INPUT GUARDRAILS   │ ── PII redaction (regex) + injection detection (regex + LLM)
 └────────┬────────────┘
-         │
+         │ (injection → blocked, skips to output guardrails)
          ▼
 ┌─────────────────────┐
-│      ROUTER         │ ── Intent classification + urgency scoring (GPT-4o-mini)
+│       ROUTER        │ ── Intent classification + urgency scoring (GPT-4o-mini)
 └────────┬────────────┘
          │
-    ┌────┴────┬──────────────┐
-    ▼         ▼              ▼
-┌────────┐ ┌──────────┐ ┌───────────┐
+    ┌────┴─────┬──────────────┐
+    ▼          ▼              ▼
+┌─────────┐ ┌──────────┐ ┌───────────┐
 │KNOWLEDGE│ │ ANALYST  │ │ESCALATION │
-│ AGENT   │ │  AGENT   │ │           │
-│ (RAG)   │ │ (Tools)  │ │ (Handoff) │
-└────┬───┘ └────┬─────┘ └─────┬─────┘
-     │          │              │
-     └────┬─────┴──────────────┘
-          ▼
+│  AGENT  │ │  AGENT   │ │           │
+│  (RAG)  │ │ (Tools)  │ │ (Handoff) │
+└────┬────┘ └────┬─────┘ └─────┬─────┘
+     │ confidence < 0.4 → escalation
+     └─────┬─────┴─────────────┘
+           ▼
 ┌─────────────────────┐
-│  OUTPUT GUARDRAILS   │ ── PII leak scan + scope check + compliance rewrite
+│  OUTPUT GUARDRAILS  │ ── PII leak scan + scope check + compliance rewrite
 └─────────────────────┘
-          │
-          ▼
-    Final Response
+           │
+           ▼
+     Final response
 ```
 
 ## Agents
 
-| Agent | Role | LLM Usage |
+| Agent | Role | LLM usage |
 |-------|------|-----------|
 | Input Guardrails | Detects PII (regex) and prompt injections (regex + LLM fallback) | GPT-4o-mini for Layer 2 injection classification |
 | Router | Classifies intent (faq/complex_query/complaint/escalation/greeting/out_of_scope) and urgency (low/medium/high) | GPT-4o-mini at temperature=0 |
 | Knowledge Agent | Answers FAQ/docs queries using RAG from ChromaDB | GPT-4o-mini for grounded response generation |
 | Analyst Agent | Handles complex queries with tool calling (order lookup, billing calc, service status) | GPT-4o-mini with function calling |
 | Escalation | Generates human handoff summaries when confidence is low or escalation is requested | GPT-4o-mini for summary generation |
-| Output Guardrails | Scans responses for PII leaks, unauthorized promises, and rewrites if needed | GPT-4o-mini for compliance rewriting |
+| Output Guardrails | Scans responses for PII leaks and unauthorized promises, and rewrites if needed | GPT-4o-mini for compliance rewriting |
 
-## Tech Stack
+## Tech stack
 
-- **Orchestration**: LangGraph (StateGraph with conditional routing)
-- **LLM**: OpenAI GPT-4o-mini
-- **Embeddings**: OpenAI text-embedding-3-small
-- **Vector Store**: ChromaDB (persisted to disk)
-- **Frontend**: Streamlit
-- **Language**: Python 3.11+
+- **Orchestration:** LangGraph (StateGraph with conditional routing)
+- **LLM / embeddings:** OpenAI GPT-4o-mini, text-embedding-3-small
+- **Vector store:** ChromaDB (persisted to disk)
+- **API:** FastAPI, Pydantic, Server-Sent Events
+- **Web UI:** React 19, TypeScript (strict), Vite, Fluent UI React v9
+- **Tests:** pytest; Vitest + React Testing Library
+- **Fallback UI:** Streamlit
 
 ## Setup
 
+Requires Python 3.11+, Node.js 22+, and an OpenAI API key.
+
 ```bash
-# 1. Clone the repository
 git clone https://github.com/madhumanju-42/Nexus-Support-Agent.git
 cd Nexus-Support-Agent
-
-# 2. Install dependencies
-pip install -r requirements.txt
-
-# 3. Set your OpenAI API key
-cp .env.example .env
-# Edit .env and add your key: OPENAI_API_KEY=sk-...
-
-# 4. Run the application
-streamlit run app.py
 ```
 
-The knowledge base is built automatically on first run.
+**Backend**
 
-## Sample Queries
+```bash
+python -m venv venv
+source venv/bin/activate            # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+cp .env.example .env                # then set OPENAI_API_KEY=sk-...
+python -m uvicorn api.main:app --reload --port 8000
+```
+
+The knowledge base is built automatically on first start if `chroma_db/` is missing. `GET http://localhost:8000/api/health` reports whether it is ready and whether an API key is set.
+
+**Frontend** (in a second terminal)
+
+```bash
+cd web
+npm install
+npm run dev                         # http://localhost:5173, proxies /api to port 8000
+```
+
+**Streamlit fallback**
+
+```bash
+python -m streamlit run app.py
+```
+
+### API
+
+| Endpoint | Purpose |
+|----------|---------|
+| `POST /api/chat` | Run the graph and return the final result as JSON |
+| `POST /api/chat/stream` | Same, streamed as `node` events then a `done` (or `error`) event |
+| `POST /api/feedback` | Record a thumbs up/down for a reply |
+| `GET /api/health` | Knowledge-base and API-key status |
+
+Request and response shapes are in [docs/design-web-ui.md](docs/design-web-ui.md#api-contract), `api/schemas.py`, and `web/src/types.ts`.
+
+## Sample queries
+
+These are also available as buttons in the web UI.
 
 **FAQ (Knowledge Agent):**
 - "What pricing plans does NexusCloud offer?"
@@ -103,31 +154,64 @@ The knowledge base is built automatically on first run.
 
 ## Testing
 
+No API key is needed for either suite; LLM calls are mocked or not exercised.
+
+**Backend: 66 tests**
+
 ```bash
+pip install -r requirements-dev.txt
 python -m pytest tests/ -v
 ```
 
-44 tests covering PII detection, injection blocking, routing logic, and tool functionality.
+| File | Tests | Covers |
+|------|------:|--------|
+| `tests/test_guardrails.py` | 19 | PII detection, injection patterns, output scope/PII checks |
+| `tests/test_router.py` | 13 | Routing functions, urgency and confidence escalation |
+| `tests/test_tools.py` | 12 | Order, billing, and service-status tools |
+| `tests/test_escalation.py` | 2 | Escalation summary uses redacted input (mocked OpenAI client) |
+| `tests/test_api.py` | 20 | All endpoints against the real graph with fake nodes: streaming, blocked input, handoff redaction, errors, validation, feedback, CORS |
 
-## Project Structure
+**Frontend: 16 tests**
+
+```bash
+cd web
+npm run typecheck && npm run lint && npm test
+```
+
+| File | Tests | Covers |
+|------|------:|--------|
+| `web/src/App.test.tsx` | 12 | Sending, streamed progress, source chips, blocked input, PII notice, handoff card, error + retry, feedback, sample queries, activity panel |
+| `web/src/api.test.ts` | 4 | SSE parser: partial chunks, CRLF, malformed and error events |
+
+CI (`.github/workflows/ci.yml`) runs both suites on every push and pull request.
+
+## Project structure
 
 ```
-├── app.py                      # Streamlit chat UI
+├── api/                        # FastAPI app: schemas, graph runner, endpoints
+├── web/                        # React + TypeScript + Fluent UI web app
+│   └── src/
+│       ├── types.ts            # Shared API types
+│       ├── api.ts              # Streaming client + SSE parser
+│       ├── hooks/              # useChat, usePrefersDark
+│       └── components/         # Reply, activity panel, progress, composer, samples
+├── app.py                      # Streamlit fallback UI
 ├── graph/
 │   ├── state.py                # Shared state schema (SupportState)
 │   ├── graph.py                # LangGraph definition + conditional routing
-│   └── nodes/
-│       ├── input_guardrails.py # PII redaction + injection detection
-│       ├── router.py           # Intent + urgency classification
-│       ├── knowledge_agent.py  # RAG-based FAQ agent
-│       ├── analyst_agent.py    # Tool-calling complex query agent
-│       ├── escalation.py       # Human handoff summary
-│       └── output_guardrails.py# Output validation + compliance
-├── tools/                      # Mock business tools
+│   └── nodes/                  # The six agent nodes
 ├── guardrails/                 # Regex patterns + validators
+├── tools/                      # Sample-data business tools
 ├── knowledge_base/
 │   ├── docs/                   # 12 product documentation files
 │   └── ingest.py               # ChromaDB ingestion pipeline
-├── tests/                      # 44 unit tests
+├── tests/                      # Backend tests
 └── docs/                       # Design notes, run guide, sample prompts
 ```
+
+## Documentation
+
+- [Design and trade-offs](docs/design-and-tradeoffs.md): agent structure, guardrails, known limitations
+- [Web UI and streaming API design](docs/design-web-ui.md): options considered, API contract, risks
+- [How to run](docs/HOW_TO_RUN.md): step-by-step setup for the Streamlit app
+- [Sample prompts](docs/sample_prompts.md): test queries with expected behaviour
