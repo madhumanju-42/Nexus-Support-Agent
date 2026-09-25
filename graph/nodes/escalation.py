@@ -54,9 +54,11 @@ def _determine_reason(state: SupportState) -> str:
 def escalation_node(state: SupportState) -> dict:
     """Generate escalation summary and customer-facing response."""
     reason = _determine_reason(state)
+    # Use the PII-redacted text; the raw input must not reach the LLM or the summary.
+    user_query = state.get("sanitized_input") or state["current_input"]
 
     # Build context for the summary LLM call
-    context_parts = [f"User query: {state['current_input']}"]
+    context_parts = [f"User query: {user_query}"]
     if state.get("agent_used"):
         context_parts.append(f"Agent used: {state['agent_used']}")
     if state.get("agent_response"):
@@ -83,7 +85,7 @@ def escalation_node(state: SupportState) -> dict:
     except Exception as e:
         logger.error("Escalation summary generation failed: %s", e)
         summary = (
-            f"Customer issue: {state['current_input'][:200]}. "
+            f"Customer issue: {user_query[:200]}. "
             f"Escalation reason: {reason}. "
             f"Previous agent: {state.get('agent_used', 'none')}."
         )
