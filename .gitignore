@@ -13,3 +13,11 @@ venv/
 .DS_Store
 .pytest_cache/
 pytest-cache-files-*/
+
+# Local feedback log from the web UI
+data/
+
+# Frontend
+web/node_modules/
+web/dist/
+web/coverage/
